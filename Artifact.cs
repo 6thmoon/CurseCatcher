@@ -1,6 +1,7 @@
 ﻿using HarmonyLib;
 using RoR2;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.Networking;
 using Resources = CurseCatcher.Properties.Resources;
@@ -99,7 +100,6 @@ namespace Local.Eclipse.CurseCatcher
 		private static int CountArtifact(int artifactCount) 
 				=> artifactCount + ( definition is null ? 0 : 1 );
 
-
 		[HarmonyPatch(typeof(EclipseRun), nameof(EclipseRun.OverrideRuleChoices))]
 		[HarmonyPostfix]
 		private static void ShowInEclipse(
@@ -143,5 +143,29 @@ namespace Local.Eclipse.CurseCatcher
 
 			return false;
 		}
+
+		[HarmonyPatch(typeof(RunArtifactManager), nameof(RunArtifactManager.OnDeserialize))]
+		[HarmonyTranspiler]
+		private static IEnumerable<CodeInstruction> LimitReadLength(
+				IEnumerable<CodeInstruction> instructionList)
+		{
+			MethodInfo readBitArray = typeof(NetworkExtensions).GetMethod(
+					nameof(NetworkExtensions.ReadBitArray),
+					new System.Type[] { typeof(NetworkReader), typeof(bool[]) }
+				);
+
+			foreach ( CodeInstruction instruction in instructionList )
+			{
+				if ( instruction.Calls(readBitArray) )
+				{
+					yield return CodeInstruction.Call(
+							typeof(Artifact), nameof(Artifact.ReadEnabledArtifacts));
+				}
+				else yield return instruction;
+			}
+		}
+
+		private static void ReadEnabledArtifacts(NetworkReader reader, bool[] values)
+				=> reader.ReadBitArray(values, ArtifactCatalog.artifactDefs.Length);
 	}
 }
