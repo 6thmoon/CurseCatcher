@@ -18,44 +18,44 @@ namespace Local.Eclipse.CurseCatcher
 	[BepInPlugin("local.eclipse.cursecatcher", "CurseCatcher", versionNumber)]
 	public class Plugin : BaseUnityPlugin
 	{
-		public const string versionNumber = "0.1.2";
+		public const string versionNumber = "0.2.0";
 
 		private static bool enableArtifact, enableLog,
-				disableInteractable, disableSelfDamage, disableFriendlyFire, disableFallDamage;
+				selfDamage, friendlyFire, fallDamage, interactableCost;
 
 		public void Awake()
 		{
 			string sectionTitle = "General";
 
-			disableSelfDamage = Config.Bind(
+			selfDamage = Config.Bind(
 					section: sectionTitle,
 					key: "Self Damage",
 					defaultValue: false,
 					description: "Character abilities that cost health to activate will curse "
 						+ "the user if this parameter is set to true."
-				).Value is false;
+				).Value;
 
-			disableFriendlyFire = Config.Bind(
+			friendlyFire = Config.Bind(
 					section: sectionTitle,
 					key: "Friendly Fire",
 					defaultValue: true,
 					description: "Effects that damage allies may apply curse when enabled."
-				).Value is false;
+				).Value;
 
-			disableFallDamage = Config.Bind(
+			fallDamage = Config.Bind(
 					section: sectionTitle,
 					key: "Fall Damage",
 					defaultValue: true,
 					description: "Inflict curse upon taking sufficient fall damage."
-				).Value is false;
+				).Value;
 
-			disableInteractable = Config.Bind(
+			interactableCost = Config.Bind(
 					section: sectionTitle,
 					key: "Interactable Cost",
 					defaultValue: true,
 					description: "Enable curse when spending health on interactables "
 						+ "(e.g. Shrine of Blood & Void Cradles)."
-				).Value is false;
+				).Value;
 
 			sectionTitle = "Other";
 
@@ -79,7 +79,7 @@ namespace Local.Eclipse.CurseCatcher
 			Harmony instance = null;
 
 			Run.onRunStartGlobal += ( _ ) => {
-					if ( instance is null && NetworkServer.active )
+					if ( instance is null && NetworkServer.active && Artifact.Enabled != false )
 						instance = Harmony.CreateAndPatchAll(typeof(Plugin));
 				};
 
@@ -94,39 +94,58 @@ namespace Local.Eclipse.CurseCatcher
 		private static IEnumerable<CodeInstruction> InsertCodeInstruction(
 				IEnumerable<CodeInstruction> instructionList)
 		{
-			MethodInfo adjustDifficulty = typeof(Plugin).GetMethod(
-					nameof(Plugin.AdjustDifficulty));
-			MethodInfo getDifficulty = typeof(Run).GetProperty(
-					nameof(Run.selectedDifficulty)
-				).GetMethod;
+			MethodInfo getSelectedDifficulty = typeof(Run).GetProperty(
+					nameof(Run.selectedDifficulty)).GetMethod;
 
+			bool found = false;
+			CodeInstruction previousInstruction = null;
+
+			if ( enableLog ) Console.Write("Installing hook for 'Eclipse 8' curse...");
 			foreach ( CodeInstruction instruction in instructionList )
 			{
-				yield return instruction;
-
-				if ( instruction.Calls(getDifficulty) )
+				if ( found && instruction.Branches(out _) )
 				{
-					yield return new CodeInstruction(OpCodes.Ldarg_1);
-					yield return new CodeInstruction(OpCodes.Call, adjustDifficulty);
+					found = false;
+
+					if ( previousInstruction.LoadsConstant(DifficultyIndex.Eclipse8) )
+					{
+						if ( enableLog ) Console.Write("...instruction sequence found.");
+
+						yield return new CodeInstruction(OpCodes.Pop);
+						yield return new CodeInstruction(OpCodes.Ldarg_1);
+
+						yield return CodeInstruction.Call(
+								typeof(Plugin), nameof(Plugin.ApplyCurse));
+
+						yield return new CodeInstruction(OpCodes.Brfalse, instruction.operand);
+						continue;
+					}
 				}
+				else if ( instruction.Calls(getSelectedDifficulty) )
+					found = true;
+
+				previousInstruction = instruction;
+				yield return instruction;
 			}
 		}
 
-		public static DifficultyIndex AdjustDifficulty(
-				DifficultyIndex currentDifficulty, DamageInfo damageInfo)
+		public static bool ApplyCurse(DifficultyIndex difficulty, DamageInfo damageInfo)
 		{
-			bool disableCurse = false;
+			if ( difficulty < DifficultyIndex.Eclipse8 && Artifact.Enabled != true )
+				return false;
+
+			bool applyCurse = true;
 			if ( enableLog ) PrintInfo(damageInfo);
 
 			if ( damageInfo.attacker is null )
 			{
 				if ( damageInfo.damageType.HasFlag(DamageType.FallDamage) )
-					disableCurse = disableFallDamage;
+					applyCurse &= fallDamage;
 				else switch ( damageInfo.damageType )
 				{
 					case DamageType.NonLethal:
 					case DamageType.NonLethal | DamageType.BypassArmor:
-						disableCurse = disableSelfDamage;
+						applyCurse &= selfDamage;
 						break;
 				}
 			}
@@ -134,21 +153,17 @@ namespace Local.Eclipse.CurseCatcher
 			{
 				TeamComponent team = damageInfo.attacker.GetComponent<TeamComponent>();
 				if ( team != null && team.teamIndex == TeamIndex.Player )
-					disableCurse = disableFriendlyFire;
+					applyCurse &= friendlyFire;
 				else if ( damageInfo.attacker.GetComponent<IInteractable>() is object )
-					disableCurse = disableInteractable;
+					applyCurse &= interactableCost;
 			}
 
-			if ( disableCurse && Artifact.Enabled != false )
+			if ( applyCurse ) return true;
+			else
 			{
 				if ( enableLog ) Console.WriteLine("...preventing curse.");
-				return DifficultyIndex.Invalid;
+				return false;
 			}
-			
-			if ( Artifact.Enabled == true )
-				return DifficultyIndex.Eclipse8;
-
-			return currentDifficulty;
 		}
 
 		private static void PrintInfo(DamageInfo damageInfo)
@@ -159,8 +174,10 @@ namespace Local.Eclipse.CurseCatcher
 			string getName(GameObject obj)
 			{
 				string name;
+
 				if ( obj is null ) name = "null";
 				else if ( obj == null ) name = "destroyed";
+				else if ( obj.name is null ) name = "unknown";
 				else name = obj.name;
 
 				int start = name.IndexOf('('), count = name.IndexOf(')') - start + 1;

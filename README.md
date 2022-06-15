@@ -12,5 +12,10 @@ Please report any feedback or issues discovered [here](https://github.com/6thmoo
 
 ## Version History
 
+#### `0.2.0`
+- Update transpiler logic for compatibility with other plugins that modify the same section of code.
+	- Now affects curse applied by *Artifact of the Eclipse* (from [`ZetArtifacts`](https://thunderstore.io/package/William758/ZetArtifacts/) & [`DiluvianArtifact`](https://thunderstore.io/package/William758/DiluvianArtifact/)), and the *Artifact of Eclipse 8* introduced in [`EclipseArtifacts`](https://thunderstore.io/package/Judgy/EclipseArtifacts/).
+- Fix issue when reading enabled artifacts as multiplayer client.
+
 #### `0.1.2` ***- Initial Release***
 - Prevent curse on self-damage. Host-only multiplayer support is implemented, but has not been tested extensively.

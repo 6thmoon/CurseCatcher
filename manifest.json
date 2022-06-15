@@ -1,6 +1,6 @@
 {
 	"name": "CurseCatcher",
-	"version_number": "0.1.2",
+	"version_number": "0.2.0",
 	"website_url": "https://github.com/6thmoon/CurseCatcher",
 	"description": 
 		"Provides options to prevent Eclipse curse from being applied on self-inflicted damage.",
