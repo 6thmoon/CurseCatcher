@@ -6,19 +6,17 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Security.Permissions;
 using UnityEngine;
-using UnityEngine.Networking;
 using Console = System.Console;
 
 [assembly: AssemblyVersion(Local.Eclipse.CurseCatcher.Plugin.versionNumber)]
 [assembly: SecurityPermission(SecurityAction.RequestMinimum, SkipVerification = true)]
-		// Allow private member access via publicized assemblies.
 
 namespace Local.Eclipse.CurseCatcher
 {
 	[BepInPlugin("local.eclipse.cursecatcher", "CurseCatcher", versionNumber)]
 	public class Plugin : BaseUnityPlugin
 	{
-		public const string versionNumber = "0.2.0";
+		public const string versionNumber = "0.0.0";
 
 		private static bool enableArtifact, enableLog,
 				selfDamage, friendlyFire, fallDamage, interactableCost;
@@ -76,17 +74,7 @@ namespace Local.Eclipse.CurseCatcher
 				).Value;
 
 			if ( enableArtifact ) Harmony.CreateAndPatchAll(typeof(Artifact));
-			Harmony instance = null;
-
-			Run.onRunStartGlobal += ( _ ) => {
-					if ( instance is null && NetworkServer.active && Artifact.Enabled != false )
-						instance = Harmony.CreateAndPatchAll(typeof(Plugin));
-				};
-
-			Run.onRunDestroyGlobal += ( _ ) => {
-					instance?.UnpatchSelf();
-					instance = null;
-				};
+			else Harmony.CreateAndPatchAll(typeof(Plugin));
 		}
 
 		[HarmonyPatch(typeof(HealthComponent), nameof(HealthComponent.TakeDamage))]
@@ -131,7 +119,7 @@ namespace Local.Eclipse.CurseCatcher
 
 		public static bool ApplyCurse(DifficultyIndex difficulty, DamageInfo damageInfo)
 		{
-			if ( difficulty < DifficultyIndex.Eclipse8 && Artifact.Enabled != true )
+			if ( ! enableArtifact && difficulty < DifficultyIndex.Eclipse8 )
 				return false;
 
 			bool applyCurse = true;
