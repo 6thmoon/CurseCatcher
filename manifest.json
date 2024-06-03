@@ -1,9 +1,9 @@
 {
 	"name": "CurseCatcher",
-	"version_number": "0.2.0",
+	"version_number": "0.2.1",
 	"website_url": "https://github.com/6thmoon/CurseCatcher",
 	"description": 
-		"Provides options to prevent Eclipse curse from being applied on self-inflicted damage.",
+		"Provide options to prevent Eclipse 8 curse from being applied on self-inflicted damage.",
 	"dependencies": [
 		"bbepis-BepInExPack-5.4.19"
 	]

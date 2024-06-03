@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <LangVersion>11.0</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>

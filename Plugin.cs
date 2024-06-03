@@ -1,4 +1,5 @@
 ﻿using BepInEx;
+using BepInEx.Configuration;
 using HarmonyLib;
 using RoR2;
 using System.Collections.Generic;
@@ -18,62 +19,60 @@ namespace Local.Eclipse.CurseCatcher
 	[BepInPlugin("local.eclipse.cursecatcher", "CurseCatcher", versionNumber)]
 	public class Plugin : BaseUnityPlugin
 	{
-		public const string versionNumber = "0.2.0";
+		public const string versionNumber = "0.2.1";
 
-		private static bool enableArtifact, enableLog,
-				selfDamage, friendlyFire, fallDamage, interactableCost;
+		private static bool enableArtifact;
+		private static ConfigEntry<bool>
+				selfDamage, friendlyFire, fallDamage, interactableCost, stageHazard, enableLog;
 
 		public void Awake()
 		{
-			string sectionTitle = "General";
+			const string general = "General", other = "Other";
 
 			selfDamage = Config.Bind(
-					section: sectionTitle,
+					section: general,
 					key: "Self Damage",
 					defaultValue: false,
-					description: "Character abilities that cost health to activate will curse "
-						+ "the user if this parameter is set to true."
-				).Value;
+					description: "Abilities that cost health to activate will curse the player "
+						+ "if this setting is enabled.");
 
 			friendlyFire = Config.Bind(
-					section: sectionTitle,
+					section: general,
 					key: "Friendly Fire",
 					defaultValue: true,
-					description: "Effects that damage allies may apply curse when enabled."
-				).Value;
+					description: "Effects that damage allies may apply curse when enabled.");
 
 			fallDamage = Config.Bind(
-					section: sectionTitle,
+					section: general,
 					key: "Fall Damage",
 					defaultValue: true,
-					description: "Inflict curse upon taking sufficient fall damage."
-				).Value;
+					description: "Inflict curse upon taking sufficient fall damage.");
 
 			interactableCost = Config.Bind(
-					section: sectionTitle,
+					section: general,
 					key: "Interactable Cost",
 					defaultValue: true,
-					description: "Enable curse when spending health on interactables "
-						+ "(e.g. Shrine of Blood & Void Cradles)."
-				).Value;
+					description: "Whether the debuff is triggered upon paying health costs.");
 
-			sectionTitle = "Other";
+			stageHazard = Config.Bind(
+					section: general,
+					key: "Neutral Hazards",
+					defaultValue: true,
+					description: "If neutral damage, such as stage hazards, can cause curse.");
 
 			enableArtifact = Config.Bind(
-					section: sectionTitle,
+					section: other,
 					key: "Artifact Enabled",
 					defaultValue: false,
-					description: "Optional artifact to toggle the above functionality. " 
-						+ "Can be selected in the Eclipse lobby or used to enable curse debuff "
-						+ "in other game modes. "
+					description: "Used to toggle the above functionality. Selectable in the "
+						+ "Eclipse lobby, but also applies the modifier to other game modes."
 				).Value;
 
 			enableLog = Config.Bind(
-					section: sectionTitle,
+					section: other,
 					key: "Detailed Logging",
 					defaultValue: false,
-					description: "For troubleshooting purposes."
-				).Value;
+					description: "For troubleshooting purposes only.");
 
 			if ( enableArtifact ) Harmony.CreateAndPatchAll(typeof(Artifact));
 			Harmony instance = null;
@@ -100,7 +99,7 @@ namespace Local.Eclipse.CurseCatcher
 			bool found = false;
 			CodeInstruction previousInstruction = null;
 
-			if ( enableLog ) Console.Write("Installing hook for 'Eclipse 8' curse...");
+			Console.WriteLine("Installing hook for 'Eclipse 8' curse...");
 			foreach ( CodeInstruction instruction in instructionList )
 			{
 				if ( found && instruction.Branches(out _) )
@@ -109,7 +108,7 @@ namespace Local.Eclipse.CurseCatcher
 
 					if ( previousInstruction.LoadsConstant(DifficultyIndex.Eclipse8) )
 					{
-						if ( enableLog ) Console.Write("...instruction sequence found.");
+						Console.WriteLine("...instruction sequence found.");
 
 						yield return new CodeInstruction(OpCodes.Pop);
 						yield return new CodeInstruction(OpCodes.Ldarg_1);
@@ -134,34 +133,42 @@ namespace Local.Eclipse.CurseCatcher
 			if ( difficulty < DifficultyIndex.Eclipse8 && Artifact.Enabled != true )
 				return false;
 
-			bool applyCurse = true;
-			if ( enableLog ) PrintInfo(damageInfo);
+			bool curse = true;
+			if ( enableLog.Value ) PrintInfo(damageInfo);
 
 			if ( damageInfo.attacker is null )
 			{
 				if ( damageInfo.damageType.HasFlag(DamageType.FallDamage) )
-					applyCurse &= fallDamage;
+					curse = fallDamage.Value;
 				else switch ( damageInfo.damageType )
 				{
 					case DamageType.NonLethal:
 					case DamageType.NonLethal | DamageType.BypassArmor:
-						applyCurse &= selfDamage;
+						curse = selfDamage.Value;
 						break;
 				}
 			}
-			else if ( damageInfo.attacker != null )		// Operator overloaded by Unity.
+			else if ( damageInfo.attacker )
 			{
 				TeamComponent team = damageInfo.attacker.GetComponent<TeamComponent>();
-				if ( team != null && team.teamIndex == TeamIndex.Player )
-					applyCurse &= friendlyFire;
+				if ( team ) switch ( team.teamIndex )
+				{
+					case TeamIndex.Player:
+						curse = friendlyFire.Value;
+						break;
+
+					case TeamIndex.Neutral:
+						curse = stageHazard.Value;
+						break;
+				}
 				else if ( damageInfo.attacker.GetComponent<IInteractable>() is object )
-					applyCurse &= interactableCost;
+					curse = interactableCost.Value;
 			}
 
-			if ( applyCurse ) return true;
+			if ( curse ) return true;
 			else
 			{
-				if ( enableLog ) Console.WriteLine("...preventing curse.");
+				if ( enableLog.Value ) Console.WriteLine("...preventing curse.");
 				return false;
 			}
 		}
@@ -171,7 +178,7 @@ namespace Local.Eclipse.CurseCatcher
 			string attacker = getName(damageInfo.attacker),
 					inflictor = getName(damageInfo.inflictor);
 
-			string getName(GameObject obj)
+			static string getName(GameObject obj)
 			{
 				string name;
 
@@ -188,7 +195,7 @@ namespace Local.Eclipse.CurseCatcher
 			}
 
 			string info = "attacker: " + attacker;
-			if ( inflictor != attacker && damageInfo.inflictor is object )
+			if ( inflictor != attacker && damageInfo.inflictor is not null )
 				info += " (" + inflictor + ")";
 
 			if ( damageInfo.attacker != null )

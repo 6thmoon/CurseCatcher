@@ -31,9 +31,9 @@ namespace Local.Eclipse.CurseCatcher
 					cachedName = "Curse"
 				};
 
-			Sprite loadSprite(byte[] imageData)
+			static Sprite loadSprite(byte[] imageData)
 			{
-				Texture2D texture = new Texture2D(0, 0);
+				Texture2D texture = new(512, 512, TextureFormat.ARGB32, 4, linear: false);
 				ImageConversion.LoadImage(texture, imageData);
 
 				return Sprite.Create(
