@@ -19,7 +19,7 @@ namespace Local.Eclipse.CurseCatcher
 	[BepInPlugin("local.eclipse.cursecatcher", "CurseCatcher", versionNumber)]
 	public class Plugin : BaseUnityPlugin
 	{
-		public const string versionNumber = "0.2.1";
+		public const string versionNumber = "0.3.0";
 
 		private static bool enableArtifact;
 		private static ConfigEntry<bool>
@@ -75,17 +75,7 @@ namespace Local.Eclipse.CurseCatcher
 					description: "For troubleshooting purposes only.");
 
 			if ( enableArtifact ) Harmony.CreateAndPatchAll(typeof(Artifact));
-			Harmony instance = null;
-
-			Run.onRunStartGlobal += ( _ ) => {
-					if ( instance is null && NetworkServer.active && Artifact.Enabled != false )
-						instance = Harmony.CreateAndPatchAll(typeof(Plugin));
-				};
-
-			Run.onRunDestroyGlobal += ( _ ) => {
-					instance?.UnpatchSelf();
-					instance = null;
-				};
+			else Harmony.CreateAndPatchAll(typeof(Plugin));
 		}
 
 		[HarmonyPatch(typeof(HealthComponent), nameof(HealthComponent.TakeDamage))]
@@ -130,7 +120,7 @@ namespace Local.Eclipse.CurseCatcher
 
 		public static bool ApplyCurse(DifficultyIndex difficulty, DamageInfo damageInfo)
 		{
-			if ( difficulty < DifficultyIndex.Eclipse8 && Artifact.Enabled != true )
+			if ( ! enableArtifact && difficulty < DifficultyIndex.Eclipse8 )
 				return false;
 
 			bool curse = true;

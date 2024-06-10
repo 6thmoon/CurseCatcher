@@ -1,7 +1,10 @@
 ﻿using HarmonyLib;
+using HG;
 using RoR2;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Reflection.Emit;
 using UnityEngine;
 using UnityEngine.Networking;
 using Resources = CurseCatcher.Properties.Resources;
@@ -10,63 +13,75 @@ namespace Local.Eclipse.CurseCatcher
 {
 	static class Artifact
 	{
-		public static bool? Enabled => definition is null ? null :
-				RunArtifactManager.instance?.IsArtifactEnabled(definition);
+		static ArtifactDef definition = null;
+		static int ruleIndex = -1;
 
-		private static ArtifactDef definition = null;
-		private static int ruleIndex = -1;
-
-		[HarmonyPatch(typeof(ArtifactCatalog), nameof(ArtifactCatalog.Init))]
+		[HarmonyPatch(typeof(ArtifactCatalog), nameof(ArtifactCatalog.SetArtifactDefs))]
 		[HarmonyPostfix]
-		private static void CreateArtifact()
+		static void CreateArtifact()
 		{
 			definition = new ArtifactDef {
 					nameToken = "Artifact of Infliction",
 					descriptionToken = "Only enemies inflict permanent damage.",
 
-					smallIconSelectedSprite = loadSprite(Resources.enabled),
-					smallIconDeselectedSprite = loadSprite(Resources.disabled),
+					smallIconSelectedSprite = Load(Resources.enabled),
+					smallIconDeselectedSprite = Load(Resources.disabled),
 
 					artifactIndex = (ArtifactIndex) ArtifactCatalog.artifactDefs.Length,
 					cachedName = "Curse"
 				};
 
-			static Sprite loadSprite(byte[] imageData)
-			{
-				Texture2D texture = new(512, 512, TextureFormat.ARGB32, 4, linear: false);
-				ImageConversion.LoadImage(texture, imageData);
+			ArrayUtils.ArrayAppend(ref ArtifactCatalog.artifactDefs, definition);
+			Harmony instance = null;
 
-				return Sprite.Create(
-						texture, new Rect(0, 0, texture.width, texture.height),
-						pivot: new Vector2(texture.width / 2, texture.height / 2)
-					);
-			}
+			RunArtifactManager.onArtifactEnabledGlobal +=
+				( RunArtifactManager _, ArtifactDef artifact ) =>
+				{
+					if ( instance is null && NetworkServer.active && artifact == definition )
+						instance = Harmony.CreateAndPatchAll(typeof(Plugin));
+				};
+
+			RunArtifactManager.onArtifactDisabledGlobal +=
+				( RunArtifactManager _, ArtifactDef artifact ) =>
+				{
+					if ( artifact == definition )
+					{
+						instance?.UnpatchSelf();
+						instance = null;
+					}
+				};
+		}
+
+		static Sprite Load(byte[] imageData)
+		{
+			Texture2D texture = new(512, 512, TextureFormat.ARGB32, 4, linear: false);
+			ImageConversion.LoadImage(texture, imageData);
+
+			return Sprite.Create(
+					texture, new Rect(0, 0, texture.width, texture.height),
+					pivot: new Vector2(texture.width / 2, texture.height / 2)
+				);
 		}
 
 		[HarmonyPatch(typeof(RuleCatalog), nameof(RuleCatalog.Init))]
-		[HarmonyPostfix]
-		private static void AddArtifact()
+		[HarmonyFinalizer]
+		static void AddArtifact(Exception __exception)
 		{
-			if ( definition is null )
-			{
-				System.Console.WriteLine("ERROR: Invalid catalog initialization order.");
-				return;
-			}
-
-			RuleDef ruleDef = RuleDef.FromArtifact(definition.artifactIndex);
+			if ( __exception is not null ) throw __exception;
+			RuleDef rule = RuleDef.FromArtifact(definition.artifactIndex);
 
 			ruleIndex = RuleCatalog.allRuleDefs.Count;
-			ruleDef.globalIndex = ruleIndex;
+			rule.globalIndex = ruleIndex;
 
-			RuleCatalog.allRuleDefs.Add(ruleDef);
-			RuleCatalog.ruleDefsByGlobalName[ruleDef.globalName] = ruleDef;
+			RuleCatalog.allRuleDefs.Add(rule);
+			RuleCatalog.ruleDefsByGlobalName[rule.globalName] = rule;
 
-			ruleDef.category = RuleCatalog.artifactRuleCategory;
-			RuleCatalog.artifactRuleCategory.children.Add(ruleDef);
+			rule.category = RuleCatalog.artifactRuleCategory;
+			RuleCatalog.artifactRuleCategory.children.Add(rule);
 
-			for ( int i = 0; i < ruleDef.choices.Count; ++i )
+			for ( int i = 0; i < rule.choices.Count; ++i )
 			{
-				RuleChoiceDef choice = ruleDef.choices[i];
+				RuleChoiceDef choice = rule.choices[i];
 
 				choice.localIndex = i;
 				choice.globalIndex = RuleCatalog.allChoicesDefs.Count;
@@ -76,36 +91,23 @@ namespace Local.Eclipse.CurseCatcher
 			}
 		}
 
-		[HarmonyPatch(typeof(ArtifactCatalog), nameof(ArtifactCatalog.GetArtifactDef))]
+		[HarmonyPatch(typeof(RuleCatalog), nameof(RuleCatalog.AddRule))]
 		[HarmonyPrefix]
-		private static bool GetArtifact(ArtifactIndex artifactIndex,
-				ref ArtifactDef __result)
+		static bool SkipRule(RuleDef ruleDef)
 		{
-			__result = definition;
-			return artifactIndex != definition?.artifactIndex;
-		}
+			foreach ( RuleChoiceDef choice in ruleDef.choices )
+				if ( choice.artifactIndex == definition.artifactIndex )
+					return false;
 
-		[HarmonyPatch(typeof(ArtifactCatalog), nameof(ArtifactCatalog.FindArtifactIndex))]
-		[HarmonyPrefix]
-		private static bool FindArtifact(string artifactName,
-				ref ArtifactIndex __result)
-		{
-			__result = definition?.artifactIndex ?? ArtifactIndex.None;
-			return artifactName != definition?.cachedName;
+			return true;
 		}
-
-		[HarmonyPatch(typeof(ArtifactCatalog),
-				nameof(ArtifactCatalog.artifactCount), MethodType.Getter)]
-		[HarmonyPostfix]
-		private static int CountArtifact(int artifactCount) 
-				=> artifactCount + ( definition is null ? 0 : 1 );
 
 		[HarmonyPatch(typeof(EclipseRun), nameof(EclipseRun.OverrideRuleChoices))]
 		[HarmonyPostfix]
-		private static void ShowInEclipse(
+		static void ShowInEclipse(
 				RuleChoiceMask mustInclude, RuleChoiceMask mustExclude)
 		{
-			IEnumerable<RuleChoiceDef> choices = ruleIndex >= 0 ? 
+			IEnumerable<RuleChoiceDef> choices = ruleIndex >= 0 ?
 					RuleCatalog.GetRuleDef(ruleIndex).choices : new List<RuleChoiceDef>();
 
 			foreach ( RuleChoiceDef choice in choices )
@@ -116,9 +118,9 @@ namespace Local.Eclipse.CurseCatcher
 		}
 
 		[HarmonyPatch(typeof(NetworkExtensions), nameof(NetworkExtensions.Write),
-				new System.Type[] { typeof(NetworkWriter), typeof(RuleBook) })]
+				new Type[] { typeof(NetworkWriter), typeof(RuleBook) })]
 		[HarmonyPrefix]
-		private static bool WriteRuleBook(NetworkWriter writer, RuleBook src)
+		static bool WriteRuleBook(NetworkWriter writer, RuleBook src)
 		{
 			for ( int i = 0; i < src.ruleValues.Length; ++i )
 				if ( i != ruleIndex )
@@ -129,7 +131,7 @@ namespace Local.Eclipse.CurseCatcher
 
 		[HarmonyPatch(typeof(NetworkExtensions), nameof(NetworkExtensions.ReadRuleBook))]
 		[HarmonyPrefix]
-		private static bool ReadRuleBook(NetworkReader reader, RuleBook dest)
+		static bool ReadRuleBook(NetworkReader reader, RuleBook dest)
 		{
 			for ( int i = 0; i < dest.ruleValues.Length; ++i )
 			{
@@ -146,26 +148,26 @@ namespace Local.Eclipse.CurseCatcher
 
 		[HarmonyPatch(typeof(RunArtifactManager), nameof(RunArtifactManager.OnDeserialize))]
 		[HarmonyTranspiler]
-		private static IEnumerable<CodeInstruction> LimitReadLength(
-				IEnumerable<CodeInstruction> instructionList)
+		static IEnumerable<CodeInstruction> LimitReadLength(IEnumerable<CodeInstruction> IL)
 		{
 			MethodInfo readBitArray = typeof(NetworkExtensions).GetMethod(
 					nameof(NetworkExtensions.ReadBitArray),
-					new System.Type[] { typeof(NetworkReader), typeof(bool[]) }
+					new Type[] { typeof(NetworkReader), typeof(bool[]) }
 				);
 
-			foreach ( CodeInstruction instruction in instructionList )
+			foreach ( CodeInstruction instruction in IL )
 			{
 				if ( instruction.Calls(readBitArray) )
 				{
-					yield return CodeInstruction.Call(
-							typeof(Artifact), nameof(Artifact.ReadEnabledArtifacts));
+					yield return Transpilers.EmitDelegate(
+						( NetworkReader input, bool[] array ) =>
+						{
+							if ( definition is null ) input.ReadBitArray(array);
+							else input.ReadBitArray(array, array.Length - 1);
+						});
 				}
 				else yield return instruction;
 			}
 		}
-
-		private static void ReadEnabledArtifacts(NetworkReader reader, bool[] values)
-				=> reader.ReadBitArray(values, ArtifactCatalog.artifactDefs.Length);
 	}
 }
