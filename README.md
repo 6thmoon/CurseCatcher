@@ -12,6 +12,9 @@ Please report any issues discovered [**here**](https://github.com/6thmoon/CurseC
 
 ## Version History
 
+#### `0.3.1`
+- *Seekers of the Storm* patch.
+
 #### `0.3.0`
 - Improve server-side artifact implementation.
 
