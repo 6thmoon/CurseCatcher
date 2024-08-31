@@ -4,7 +4,6 @@ using RoR2;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Reflection.Emit;
 using UnityEngine;
 using UnityEngine.Networking;
 using Resources = CurseCatcher.Properties.Resources;
@@ -38,7 +37,7 @@ static class Artifact
 			( RunArtifactManager _, ArtifactDef artifact ) =>
 			{
 				if ( instance is null && NetworkServer.active && artifact == definition )
-					instance = Harmony.CreateAndPatchAll(typeof(Plugin));
+					instance = Harmony.CreateAndPatchAll(Plugin.instance.GetType());
 			};
 
 		RunArtifactManager.onArtifactDisabledGlobal +=

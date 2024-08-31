@@ -7,8 +7,8 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Security.Permissions;
 using UnityEngine;
-using UnityEngine.Networking;
 using Console = System.Console;
+using Version = System.Version;
 
 [assembly: AssemblyVersion(Local.Eclipse.CurseCatcher.Plugin.version)]
 [assembly: SecurityPermission(SecurityAction.RequestMinimum, SkipVerification = true)]
@@ -18,7 +18,7 @@ namespace Local.Eclipse.CurseCatcher;
 [BepInPlugin(identifier, "CurseCatcher", version)]
 class Plugin : BaseUnityPlugin
 {
-	public const string identifier = "local.eclipse.cursecatcher", version = "0.3.0";
+	public const string identifier = "local.eclipse.cursecatcher", version = "0.3.1";
 
 	static bool artifact;
 	static ConfigEntry<bool> self, friendly, fall, interactable, hazard, log;
@@ -46,7 +46,7 @@ class Plugin : BaseUnityPlugin
 				defaultValue: true,
 				description: "Inflict curse upon taking sufficient fall damage.");
 
-		hazard = Config.Bind(
+		interactable = Config.Bind(
 				section: general,
 				key: "Interactable Cost",
 				defaultValue: true,
@@ -72,12 +72,27 @@ class Plugin : BaseUnityPlugin
 				defaultValue: false,
 				description: "For troubleshooting purposes only.");
 
-		if ( artifact ) Harmony.CreateAndPatchAll(typeof(Artifact));
-		else Harmony.CreateAndPatchAll(typeof(Plugin));
+		if ( artifact )
+		{
+			Harmony.CreateAndPatchAll(typeof(Artifact));
+			RoR2Application.onLoad += CheckVersion;
+		}
+		else RoR2Application.onLoad += ( ) =>
+		{
+			CheckVersion();
+			Harmony.CreateAndPatchAll(instance.GetType());
+		};
 	}
 
-	[HarmonyPatch(typeof(HealthComponent), nameof(HealthComponent.TakeDamage))]
-	[HarmonyTranspiler]
+	internal static IPatch instance;
+	internal interface IPatch { public object GetDamageType(DamageInfo info); }
+
+	void CheckVersion()
+	{
+		instance = Version.TryParse(RoR2Application.GetBuildId(), out Version build)
+				&& build < new Version(1, 3) ? new Hopoo() : new Gearbox();
+	}
+
 	static IEnumerable<CodeInstruction> InsertCodeInstruction(IEnumerable<CodeInstruction> IL)
 	{
 		MethodInfo getSelectedDifficulty = typeof(Run).GetProperty(
@@ -125,13 +140,16 @@ class Plugin : BaseUnityPlugin
 
 		if ( damageInfo.attacker is null )
 		{
-			if ( damageInfo.damageType.HasFlag(DamageType.FallDamage) )
-				curse = fall.Value;
-			else switch ( damageInfo.damageType )
+			switch ( instance.GetDamageType(damageInfo) )
 			{
 				case DamageType.NonLethal:
 				case DamageType.NonLethal | DamageType.BypassArmor:
 					curse = self.Value;
+					break;
+
+				case DamageType enumeration:
+					if ( enumeration.HasFlag(DamageType.FallDamage) )
+						curse = fall.Value;
 					break;
 			}
 		}
@@ -194,5 +212,26 @@ class Plugin : BaseUnityPlugin
 
 		info += ", type: " + damage.damageType;
 		Console.WriteLine(info);
+	}
+
+	class Hopoo : IPatch
+	{
+		[HarmonyPatch(typeof(HealthComponent), nameof(HealthComponent.TakeDamage))]
+		[HarmonyTranspiler]
+		static IEnumerable<CodeInstruction> Transpile(IEnumerable<CodeInstruction> IL)
+				=> InsertCodeInstruction(IL);
+
+		public object GetDamageType(DamageInfo info)
+				=> typeof(DamageInfo).GetField(nameof(info.damageType)).GetValue(info);
+	}
+
+	class Gearbox : IPatch
+	{
+		[HarmonyPatch(typeof(HealthComponent), nameof(HealthComponent.TakeDamageProcess))]
+		[HarmonyTranspiler]
+		static IEnumerable<CodeInstruction> Transpile(IEnumerable<CodeInstruction> IL)
+				=> InsertCodeInstruction(IL);
+
+		public object GetDamageType(DamageInfo info) => info.damageType.damageType;
 	}
 }
