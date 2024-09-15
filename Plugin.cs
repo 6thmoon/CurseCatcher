@@ -18,7 +18,7 @@ namespace Local.Eclipse.CurseCatcher;
 [BepInPlugin(identifier, "CurseCatcher", version)]
 class Plugin : BaseUnityPlugin
 {
-	public const string identifier = "local.eclipse.cursecatcher", version = "0.3.1";
+	public const string identifier = "local.eclipse.cursecatcher", version = "0.3.2";
 
 	static bool artifact;
 	static ConfigEntry<bool> self, friendly, fall, interactable, hazard, log;
@@ -144,6 +144,7 @@ class Plugin : BaseUnityPlugin
 			{
 				case DamageType.NonLethal:
 				case DamageType.NonLethal | DamageType.BypassArmor:
+				case (uint) DamageTypeExtended.SojournVehicleDamage:
 					curse = self.Value;
 					break;
 
@@ -232,6 +233,11 @@ class Plugin : BaseUnityPlugin
 		static IEnumerable<CodeInstruction> Transpile(IEnumerable<CodeInstruction> IL)
 				=> InsertCodeInstruction(IL);
 
-		public object GetDamageType(DamageInfo info) => info.damageType.damageType;
+		public object GetDamageType(DamageInfo info)
+		{
+			DamageType type = info.damageType.damageType;
+			if ( type is not DamageType.Generic ) return type;
+			else return (uint) info.damageType.damageTypeExtended;
+		}
 	}
 }
